@@ -8,7 +8,7 @@ st.set_page_config(page_title="نظام إدارة الصيانة", layout="cent
 PASSWORD_PROFITS = "1234"
 
 SUPABASE_URL = "https://supabase.co"
-SUPABASE_KEY = "ضع_المفتاح_هنا"
+SUPABASE_KEY = "sb_publishable_99S_RRCdvgeR5RYHIz6HEQ_2liMn71n"
 
 def init_local():
     conn = sqlite3.connect("saleem_local_cache.db")
