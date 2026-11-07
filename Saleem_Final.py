@@ -1,5 +1,5 @@
 import streamlit as st
-import os
+import sqlite3, os
 import pandas as pd
 import streamlit.components.v1 as components
 from supabase import create_client
@@ -8,13 +8,53 @@ st.set_page_config(page_title="نظام إدارة الصيانة", layout="cent
 PASSWORD_PROFITS = "1234"
 
 SUPABASE_URL = "https://supabase.co"
-SUPABASE_KEY = "sb_publishable_99S_RRCdvgeR5RYHIz6HEQ_2liMn71n"
+SUPABASE_KEY = "ضع_المفتاح_هنا"
 
-@st.cache_resource
-def init_supabase():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+def init_local():
+    conn = sqlite3.connect("saleem_local_cache.db")
+    conn.execute("CREATE TABLE IF NOT EXISTS repairs (id INTEGER PRIMARY KEY AUTOINCREMENT, client_name TEXT, phone_number TEXT, device_model TEXT, issue TEXT, cost REAL, part_cost REAL, status TEXT, date_added TEXT, synced INTEGER DEFAULT 1)")
+    conn.execute("CREATE TABLE IF NOT EXISTS inventory (id INTEGER PRIMARY KEY AUTOINCREMENT, part_name TEXT, quantity INTEGER, price REAL, synced INTEGER DEFAULT 1)")
+    try:
+        conn.execute("ALTER TABLE repairs ADD COLUMN synced INTEGER DEFAULT 1")
+        conn.execute("ALTER TABLE inventory ADD COLUMN synced INTEGER DEFAULT 1")
+    except Exception:
+        pass
+    conn.commit()
+    conn.close()
 
-supabase = init_supabase()
+init_local()
+
+def sync_and_check():
+    try:
+        sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+        conn = sqlite3.connect("saleem_local_cache.db")
+        
+        # 1. رفع أي بيانات أُضيفت أثناء انقطاع النت (synced = 0) إلى السحابة أولاً
+        unsynced_repairs = conn.execute("SELECT client_name, phone_number, device_model, issue, cost, part_cost, status, date_added FROM repairs WHERE synced=0").fetchall()
+        for r in unsynced_repairs:
+            sb.table("repairs").insert({"client_name": r[0], "phone_number": r[1], "device_model": r[2], "issue": r[3], "cost": r[4], "part_cost": r[5], "status": r[6], "date_added": r[7]}).execute()
+            
+        unsynced_inv = conn.execute("SELECT part_name, quantity, price FROM inventory WHERE synced=0").fetchall()
+        for i in unsynced_inv:
+            sb.table("inventory").insert({"part_name": i[0], "quantity": i[1], "price": i[2]}).execute()
+            
+        # 2. جلب النسخة الكاملة المحدثة من السحابة وتخزينها محلياً
+        r_data = sb.table("repairs").select("*").order("id", desc=True).execute().data
+        i_data = sb.table("inventory").select("*").order("id", desc=True).execute().data
+        
+        conn.execute("DELETE FROM repairs")
+        for r in r_data:
+            conn.execute("INSERT INTO repairs VALUES (?,?,?,?,?,?,?,?,?,1)", (r['id'], r['client_name'], r['phone_number'], r['device_model'], r['issue'], r['cost'], r.get('part_cost', 0), r['status'], r['date_added']))
+        conn.execute("DELETE FROM inventory")
+        for i in i_data:
+            conn.execute("INSERT INTO inventory VALUES (?,?,?,?,1)", (i['id'], i['part_name'], i['quantity'], i['price']))
+        conn.commit()
+        conn.close()
+        return sb, True
+    except Exception:
+        return None, False
+
+supabase, is_online = sync_and_check()
 
 st.markdown("""
 <style>
@@ -30,6 +70,11 @@ div[role="radiogroup"] label p { font-size: 22px !important; font-weight: 800 !i
 h1, h2, h3, p, label { text-align: right; direction: rtl; }
 </style>
 """, unsafe_allow_html=True)
+
+if is_online:
+    st.markdown("<div style='background:#dcfce7;color:#166534;padding:8px;border-radius:10px;text-align:center;font-weight:bold;margin-bottom:10px;'>🟢 متصل بالسحابة (تمت مزامنة كافة البيانات)</div>", unsafe_allow_html=True)
+else:
+    st.markdown("<div style='background:#fef3c7;color:#92400e;padding:8px;border-radius:10px;text-align:center;font-weight:bold;margin-bottom:10px;'>🟠 وضع عدم الاتصال (يتم الحفظ محلياً وسيُرفع تلقائياً عند عودة النت)</div>", unsafe_allow_html=True)
 
 if 'page' not in st.session_state:
     st.session_state.page = 'welcome'
@@ -66,8 +111,9 @@ elif st.session_state.page == 'profits':
         st.session_state.page = 'welcome'
         st.rerun()
     st.markdown("<h2 style='color:#007a78;'>📊 الأرباح الشهرية للصيانة</h2><hr>", unsafe_allow_html=True)
-    res = supabase.table("repairs").select("*").execute()
-    df = pd.DataFrame(res.data)
+    conn = sqlite3.connect("saleem_local_cache.db")
+    df = pd.read_sql_query("SELECT * FROM repairs", conn)
+    conn.close()
     if not df.empty:
         df['net'] = df['cost'] - df['part_cost'].fillna(0)
         df['month'] = pd.to_datetime(df['date_added']).dt.strftime('%Y-%m')
@@ -77,7 +123,7 @@ elif st.session_state.page == 'profits':
         st.markdown(f"<div style='display:flex;gap:12px;margin-bottom:15px;'><div class='card' style='flex:1;'>إجمالي الدخل<br><b style='font-size:26px;'>{done['cost'].sum():.2f} د.ل</b></div><div class='card' style='flex:1;'>صافي الربح<br><b style='font-size:26px;color:#007a78;'>{done['net'].sum():.2f} د.ل</b></div></div>", unsafe_allow_html=True)
         st.dataframe(m_df[['id', 'client_name', 'device_model', 'cost', 'part_cost', 'net', 'status']], use_container_width=True, hide_index=True)
     else:
-        st.info("لا توجد بيانات صيانة مسجلة حتى الآن.")
+        st.info("لا توجد بيانات صيانة مسجلة.")
 
 elif st.session_state.page == 'mgmt':
     if st.button("🏠 العودة للشاشة الرئيسية"):
@@ -92,47 +138,39 @@ elif st.session_state.page == 'mgmt':
         pq = c1.number_input("الكمية", min_value=1, step=1, key="in_q")
         pp = c2.number_input("السعر (د.ل)", min_value=0.0, step=5.0, key="in_p")
         if st.button("💾 حفظ الصنف") and pn.strip():
-            supabase.table("inventory").insert({"part_name": pn.strip(), "quantity": int(pq), "price": float(pp)}).execute()
+            if is_online:
+                supabase.table("inventory").insert({"part_name": pn.strip(), "quantity": int(pq), "price": float(pp)}).execute()
+            else:
+                conn = sqlite3.connect("saleem_local_cache.db")
+                conn.execute("INSERT INTO inventory (part_name, quantity, price, synced) VALUES (?,?,?,0)", (pn.strip(), int(pq), float(pp)))
+                conn.commit(); conn.close()
             st.rerun()
-        res_i = supabase.table("inventory").select("*").order("id", desc=True).execute()
-        for r in res_i.data:
+        conn = sqlite3.connect("saleem_local_cache.db")
+        df_i = pd.read_sql_query("SELECT * FROM inventory ORDER BY id DESC", conn)
+        conn.close()
+        for _, r in df_i.iterrows():
             st.markdown(f"<div class='card'><b>{r['part_name']}</b> | الكمية: <b>{r['quantity']}</b> | السعر: <b>{r['price']} د.ل</b></div>", unsafe_allow_html=True)
             b1, b2, b3 = st.columns(3)
             if b1.button("➕", key=f"a_{r['id']}"):
-                supabase.table("inventory").update({"quantity": r['quantity'] + 1}).eq("id", r['id']).execute()
+                if is_online: supabase.table("inventory").update({"quantity": int(r['quantity']) + 1}).eq("id", int(r['id'])).execute()
+                else:
+                    conn = sqlite3.connect("saleem_local_cache.db")
+                    conn.execute("UPDATE inventory SET quantity=quantity+1 WHERE id=?", (int(r['id']),))
+                    conn.commit(); conn.close()
                 st.rerun()
             if b2.button("➖", key=f"u_{r['id']}") and r['quantity'] > 0:
-                supabase.table("inventory").update({"quantity": r['quantity'] - 1}).eq("id", r['id']).execute()
+                if is_online: supabase.table("inventory").update({"quantity": int(r['quantity']) - 1}).eq("id", int(r['id'])).execute()
+                else:
+                    conn = sqlite3.connect("saleem_local_cache.db")
+                    conn.execute("UPDATE inventory SET quantity=quantity-1 WHERE id=?", (int(r['id']),))
+                    conn.commit(); conn.close()
                 st.rerun()
             if b3.button("🗑️", key=f"di_{r['id']}"):
-                supabase.table("inventory").delete().eq("id", r['id']).execute()
+                if is_online: supabase.table("inventory").delete().eq("id", int(r['id'])).execute()
+                else:
+                    conn = sqlite3.connect("saleem_local_cache.db")
+                    conn.execute("DELETE FROM inventory WHERE id=?", (int(r['id']),))
+                    conn.commit(); conn.close()
                 st.rerun()
 
     elif sec == "📱 قسم الصيانة":
-        st.markdown("### ➕ تسجيل جهاز صيانة")
-        cn = st.text_input("اسم الزبون", key="cn")
-        cp = st.text_input("رقم الهاتف", key="cp")
-        cd = st.text_input("نوع الجهاز", key="cd")
-        ci = st.text_input("وصف العطل", key="ci")
-        c1, c2 = st.columns(2)
-        cc = c1.number_input("السعر للزبون (د.ل)", min_value=0.0, step=5.0, key="cc")
-        cpc = c2.number_input("تكلفة القطعة (د.ل)", min_value=0.0, step=5.0, key="cpc")
-        cs = st.selectbox("الحالة", ["قيد الانتظار", "تحت الصيانة", "تمت صيانته", "تم تسليمه"], key="cs")
-        if st.button("💾 حفظ الجهاز") and cn.strip() and cd.strip():
-            supabase.table("repairs").insert({"client_name": cn, "phone_number": cp, "device_model": cd, "issue": ci, "cost": cc, "part_cost": cpc, "status": cs}).execute()
-            st.rerun()
-        res_r = supabase.table("repairs").select("*").order("id", desc=True).execute()
-        for r in res_r.data:
-            st.markdown(f"<div class='card'><b>#{r['id']} | {r['client_name']} ({r['device_model']})</b><br>الهاتف: {r['phone_number']} | العطل: {r['issue']} | السعر: {r['cost']} د.ل</div>", unsafe_allow_html=True)
-            st_list = ["قيد الانتظار", "تحت الصيانة", "تمت صيانته", "تم تسليمه"]
-            ns = st.selectbox("الحالة", st_list, index=st_list.index(r['status']) if r['status'] in st_list else 0, key=f"s_{r['id']}")
-            if ns != r['status']:
-                supabase.table("repairs").update({"status": ns}).eq("id", r['id']).execute()
-                st.rerun()
-            c_p, c_d = st.columns(2)
-            with c_p:
-                btn = f'<button onclick="var w=window.open(\'\',\'\',\'width=400,height=400\');w.document.write(\'<div dir=rtl style=text-align:center><h2>وصل #{r["id"]}</h2><p>{r["client_name"]} - {r["device_model"]}</p><p>{r["cost"]} د.ل</p></div>\');w.print();w.close();" style="background:#00807d;color:white;border:none;padding:14px;border-radius:16px;width:100%;min-height:68px;font-weight:bold;font-size:24px;cursor:pointer;margin-top:8px;">🖨️ طباعة</button>'
-                components.html(btn, height=85)
-            if c_d.button("🗑️ حذف", key=f"d_{r['id']}"):
-                supabase.table("repairs").delete().eq("id", r['id']).execute()
-                st.rerun()
