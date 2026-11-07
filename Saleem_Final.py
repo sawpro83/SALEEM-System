@@ -7,7 +7,7 @@ from mgmt import show_mgmt
 st.set_page_config(page_title="نظام إدارة الصيانة", layout="centered")
 PASSWORD_PROFITS = "1234"
 SUPABASE_URL = "https://supabase.co"
-SUPABASE_KEY = "ضع_المفتاح_هنا"
+SUPABASE_KEY = "sb_publishable_99S_RRCdvgeR5RYHIz6HEQ_2liMn71n"
 
 conn = sqlite3.connect("saleem_local_cache.db")
 conn.execute("CREATE TABLE IF NOT EXISTS repairs (id INTEGER PRIMARY KEY AUTOINCREMENT, client_name TEXT, phone_number TEXT, device_model TEXT, issue TEXT, cost REAL, part_cost REAL, status TEXT, date_added TEXT, synced INTEGER DEFAULT 1)")
