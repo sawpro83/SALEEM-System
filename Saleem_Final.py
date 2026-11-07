@@ -7,7 +7,7 @@ from mgmt import show_mgmt
 st.set_page_config(page_title="نظام إدارة الصيانة", layout="centered")
 PASSWORD_PROFITS = "1234"
 SUPABASE_URL = "https://supabase.co"
-SUPABASE_KEY = "sb_publishable_99S_RRCdvgeR5RYHIz6HEQ_2liMn71n"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF3d2NhanlsbGV0cWdneXNmeGx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQwNjM0MzYsImV4cCI6MjEwOTYzOTQzNn0.ZnbxHoJHocMdokrU4V0nD8E7AC8YPj3tYPWT3eZfje0"
 
 conn = sqlite3.connect("saleem_local_cache.db")
 conn.execute("CREATE TABLE IF NOT EXISTS repairs (id INTEGER PRIMARY KEY AUTOINCREMENT, client_name TEXT, phone_number TEXT, device_model TEXT, issue TEXT, cost REAL, part_cost REAL, status TEXT, date_added TEXT, synced INTEGER DEFAULT 1)")
@@ -41,7 +41,7 @@ def sync_db():
         conn.close()
         return sb, True
     except Exception as e:
-        st.warning(f"سبب عدم الاتصال بالسحابة: {e}")
+        st.warning(f"تفاصيل الخطأ: {e}")
         return None, False
 
 supabase, is_online = sync_db()
