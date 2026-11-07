@@ -34,7 +34,7 @@ on = st.session_state.get('on', False)
 
 st.markdown("<style>html,body,.stApp{direction:rtl;text-align:right;} div.stButton>button{background:#00807d;color:white;border-radius:12px;width:100%;min-height:55px;font-size:20px;font-weight:bold;} .card{background:white;padding:14px;border-radius:12px;border-right:5px solid #00807d;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1);}</style>", unsafe_allow_html=True)
 
-c1, c2 = st.columns()
+c1, c2 = st.columns(2)
 c1.success("متصل بالسحابة") if on else c1.warning(f"حفظ محلي ({st.session_state.get('err','')})")
 if c2.button("مزامنة"): sync(); st.rerun()
 
