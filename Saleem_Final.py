@@ -19,22 +19,29 @@ def sync_db():
     try:
         sb = create_client(SUPABASE_URL, SUPABASE_KEY)
         conn = sqlite3.connect("saleem_local_cache.db")
+        
         for r in conn.execute("SELECT client_name,phone_number,device_model,issue,cost,part_cost,status,date_added FROM repairs WHERE synced=0").fetchall():
-            sb.table("repairs").insert({"client_name":r[0],"phone_number":r[1],"device_model":r[2],"issue":r[3],"cost":r[4],"part_cost":r[5],"status":r[6],"date_added":r[7]}).execute()
+            sb.table("repairs").insert({"client_name":r,"phone_number":r,"device_model":r,"issue":r,"cost":r,"part_cost":r,"status":r,"date_added":r}).execute()
+            
         for i in conn.execute("SELECT part_name,quantity,price FROM inventory WHERE synced=0").fetchall():
-            sb.table("inventory").insert({"part_name":i[0],"quantity":i[1],"price":i[2]}).execute()
+            sb.table("inventory").insert({"part_name":i,"quantity":i,"price":i}).execute()
+            
         r_data = sb.table("repairs").select("*").order("id", desc=True).execute().data
         i_data = sb.table("inventory").select("*").order("id", desc=True).execute().data
+        
         conn.execute("DELETE FROM repairs")
         for r in r_data:
             conn.execute("INSERT INTO repairs VALUES (?,?,?,?,?,?,?,?,?,1)", (r['id'],r['client_name'],r['phone_number'],r['device_model'],r['issue'],r['cost'],r.get('part_cost',0),r['status'],r['date_added']))
+            
         conn.execute("DELETE FROM inventory")
         for i in i_data:
             conn.execute("INSERT INTO inventory VALUES (?,?,?,?,1)", (i['id'],i['part_name'],i['quantity'],i['price']))
+            
         conn.commit()
         conn.close()
         return sb, True
-    except Exception:
+    except Exception as e:
+        st.warning(f"سبب عدم الاتصال بالسحابة: {e}")
         return None, False
 
 supabase, is_online = sync_db()
@@ -102,6 +109,8 @@ elif st.session_state.page == 'profits':
         done = m_df[m_df['status'].isin(['تمت صيانته', 'تم تسليمه'])]
         st.markdown(f"<div style='display:flex;gap:12px;margin-bottom:15px;'><div class='card' style='flex:1;'>إجمالي الدخل<br><b style='font-size:26px;'>{done['cost'].sum():.2f} د.ل</b></div><div class='card' style='flex:1;'>صافي الربح<br><b style='font-size:26px;color:#007a78;'>{done['net'].sum():.2f} د.ل</b></div></div>", unsafe_allow_html=True)
         st.dataframe(m_df[['id','client_name','device_model','cost','part_cost','net','status']], use_container_width=True, hide_index=True)
+    else:
+        st.info("لا توجد بيانات صيانة مسجلة.")
 
 elif st.session_state.page == 'mgmt':
     show_mgmt(supabase, is_online)
