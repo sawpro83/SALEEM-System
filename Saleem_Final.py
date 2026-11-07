@@ -1,5 +1,4 @@
 import streamlit as st, sqlite3, os, requests, pandas as pd
-import streamlit.components.v1 as components
 
 st.set_page_config(page_title="نظام الصيانة", layout="centered")
 URL = "https://supabase.co"
@@ -15,28 +14,38 @@ def sync():
     try:
         c = sqlite3.connect("saleem_local_cache.db")
         for r in c.execute("SELECT client_name,phone_number,device_model,issue,cost,part_cost,status,date_added FROM repairs WHERE synced=0").fetchall():
-            requests.post(f"{URL}/repairs", headers=H, json={"client_name":r,"phone_number":r,"device_model":r,"issue":r,"cost":r,"part_cost":r,"status":r,"date_added":r}, timeout=5)
+            requests.post(f"{URL}/repairs", headers=H, json={"client_name":r[0],"phone_number":r[1],"device_model":r[2],"issue":r[3],"cost":r[4],"part_cost":r[5],"status":r[6],"date_added":r[7]}, timeout=5)
         for i in c.execute("SELECT part_name,quantity,price FROM inventory WHERE synced=0").fetchall():
-            requests.post(f"{URL}/inventory", headers=H, json={"part_name":i,"quantity":i,"price":i}, timeout=5)
-        rr = requests.get(f"{URL}/repairs?select=*&order=id.desc", headers=H, timeout=5).json()
-        ri = requests.get(f"{URL}/inventory?select=*&order=id.desc", headers=H, timeout=5).json()
+            requests.post(f"{URL}/inventory", headers=H, json={"part_name":i[0],"quantity":i[1],"price":i[2]}, timeout=5)
+        r1 = requests.get(f"{URL}/repairs?select=*&order=id.desc", headers=H, timeout=5)
+        r2 = requests.get(f"{URL}/inventory?select=*&order=id.desc", headers=H, timeout=5)
+        if r1.status_code != 200:
+            raise Exception(f"HTTP {r1.status_code}: {r1.text[:80]}")
+        rr, ri = r1.json(), r2.json()
         c.execute("DELETE FROM repairs")
-        for r in rr: c.execute("INSERT INTO repairs VALUES (?,?,?,?,?,?,?,?,?,1)", (r['id'],r['client_name'],r['phone_number'],r['device_model'],r['issue'],r['cost'],r.get('part_cost',0),r['status'],r['date_added']))
+        for r in rr:
+            c.execute("INSERT INTO repairs VALUES (?,?,?,?,?,?,?,?,?,1)", (r['id'],r['client_name'],r['phone_number'],r['device_model'],r['issue'],r['cost'],r.get('part_cost',0),r['status'],r['date_added']))
         c.execute("DELETE FROM inventory")
-        for i in ri: c.execute("INSERT INTO inventory VALUES (?,?,?,?,1)", (i['id'],i['part_name'],i['quantity'],i['price']))
+        for i in ri:
+            c.execute("INSERT INTO inventory VALUES (?,?,?,?,1)", (i['id'],i['part_name'],i['quantity'],i['price']))
         c.commit(); c.close()
         st.session_state.on = True; st.session_state.err = ""
     except Exception as e:
         st.session_state.on = False; st.session_state.err = str(e)
 
-if 'init' not in st.session_state: sync(); st.session_state.init = True
+if 'init' not in st.session_state:
+    sync(); st.session_state.init = True
 on = st.session_state.get('on', False)
 
 st.markdown("<style>html,body,.stApp{direction:rtl;text-align:right;} div.stButton>button{background:#00807d;color:white;border-radius:12px;width:100%;min-height:55px;font-size:20px;font-weight:bold;} .card{background:white;padding:14px;border-radius:12px;border-right:5px solid #00807d;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1);}</style>", unsafe_allow_html=True)
 
 c1, c2 = st.columns(2)
-c1.success("متصل بالسحابة") if on else c1.warning(f"حفظ محلي ({st.session_state.get('err','')})")
-if c2.button("مزامنة"): sync(); st.rerun()
+if on:
+    c1.success("متصل بالسحابة")
+else:
+    c1.warning(f"حفظ محلي ({st.session_state.get('err','')})")
+if c2.button("مزامنة"):
+    sync(); st.rerun()
 
 if 'p' not in st.session_state: st.session_state.p = 'w'
 
@@ -70,24 +79,25 @@ elif st.session_state.p == 'mgmt':
             c = sqlite3.connect("saleem_local_cache.db")
             if on:
                 res = requests.post(f"{URL}/inventory", headers=H, json={"part_name":pn,"quantity":pq,"price":pp}).json()
-                c.execute("INSERT INTO inventory VALUES (?,?,?,?,1)", (res['id'],pn,pq,pp))
-            else: c.execute("INSERT INTO inventory (part_name,quantity,price,synced) VALUES (?,?,?,0)", (pn,pq,pp))
+                c.execute("INSERT INTO inventory VALUES (?,?,?,?,1)", (res[0]['id'],pn,pq,pp))
+            else:
+                c.execute("INSERT INTO inventory (part_name,quantity,price,synced) VALUES (?,?,?,0)", (pn,pq,pp))
             c.commit(); c.close(); st.rerun()
         c = sqlite3.connect("saleem_local_cache.db"); rows = c.execute("SELECT id,part_name,quantity,price FROM inventory ORDER BY id DESC").fetchall(); c.close()
         for r in rows:
-            st.markdown(f"<div class='card'><b>{r}</b> | الكمية: {r} | السعر: {r} د.ل</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='card'><b>{r[1]}</b> | الكمية: {r[2]} | السعر: {r[3]} د.ل</div>", unsafe_allow_html=True)
             b1, b2, b3 = st.columns(3)
-            if b1.button("زيادة", key=f"a{r}"):
-                c = sqlite3.connect("saleem_local_cache.db"); c.execute("UPDATE inventory SET quantity=quantity+1 WHERE id=?", (r,)); c.commit(); c.close()
-                if on: requests.patch(f"{URL}/inventory?id=eq.{r}", headers=H, json={"quantity":r+1})
+            if b1.button("زيادة", key=f"a{r[0]}"):
+                c = sqlite3.connect("saleem_local_cache.db"); c.execute("UPDATE inventory SET quantity=quantity+1 WHERE id=?", (r[0],)); c.commit(); c.close()
+                if on: requests.patch(f"{URL}/inventory?id=eq.{r[0]}", headers=H, json={"quantity":r[2]+1})
                 st.rerun()
-            if b2.button("سحب", key=f"u{r}") and r > 0:
-                c = sqlite3.connect("saleem_local_cache.db"); c.execute("UPDATE inventory SET quantity=quantity-1 WHERE id=?", (r,)); c.commit(); c.close()
-                if on: requests.patch(f"{URL}/inventory?id=eq.{r}", headers=H, json={"quantity":r-1})
+            if b2.button("سحب", key=f"u{r[0]}") and r[2] > 0:
+                c = sqlite3.connect("saleem_local_cache.db"); c.execute("UPDATE inventory SET quantity=quantity-1 WHERE id=?", (r[0],)); c.commit(); c.close()
+                if on: requests.patch(f"{URL}/inventory?id=eq.{r[0]}", headers=H, json={"quantity":r[2]-1})
                 st.rerun()
-            if b3.button("حذف", key=f"d{r}"):
-                c = sqlite3.connect("saleem_local_cache.db"); c.execute("DELETE FROM inventory WHERE id=?", (r,)); c.commit(); c.close()
-                if on: requests.delete(f"{URL}/inventory?id=eq.{r}", headers=H)
+            if b3.button("حذف", key=f"d{r[0]}"):
+                c = sqlite3.connect("saleem_local_cache.db"); c.execute("DELETE FROM inventory WHERE id=?", (r[0],)); c.commit(); c.close()
+                if on: requests.delete(f"{URL}/inventory?id=eq.{r[0]}", headers=H)
                 st.rerun()
     else:
         cn = st.text_input("الزبون"); cp = st.text_input("الهاتف"); cd = st.text_input("الجهاز"); ci = st.text_input("العطل")
@@ -96,19 +106,20 @@ elif st.session_state.p == 'mgmt':
             c = sqlite3.connect("saleem_local_cache.db")
             if on:
                 res = requests.post(f"{URL}/repairs", headers=H, json={"client_name":cn,"phone_number":cp,"device_model":cd,"issue":ci,"cost":cc,"part_cost":cpc,"status":cs}).json()
-                c.execute("INSERT INTO repairs VALUES (?,?,?,?,?,?,?,?,?,1)", (res['id'],cn,cp,cd,ci,cc,cpc,cs,res['date_added']))
-            else: c.execute("INSERT INTO repairs (client_name,phone_number,device_model,issue,cost,part_cost,status,date_added,synced) VALUES (?,?,?,?,?,?,?,date('now'),0)", (cn,cp,cd,ci,cc,cpc,cs))
+                c.execute("INSERT INTO repairs VALUES (?,?,?,?,?,?,?,?,?,1)", (res[0]['id'],cn,cp,cd,ci,cc,cpc,cs,res[0]['date_added']))
+            else:
+                c.execute("INSERT INTO repairs (client_name,phone_number,device_model,issue,cost,part_cost,status,date_added,synced) VALUES (?,?,?,?,?,?,?,date('now'),0)", (cn,cp,cd,ci,cc,cpc,cs))
             c.commit(); c.close(); st.rerun()
         c = sqlite3.connect("saleem_local_cache.db"); reps = c.execute("SELECT id,client_name,phone_number,device_model,issue,cost,status FROM repairs ORDER BY id DESC").fetchall(); c.close()
         for r in reps:
-            st.markdown(f"<div class='card'><b>#{r} | {r} ({r})</b><br>{r} | {r} | {r} د.ل</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='card'><b>#{r[0]} | {r[1]} ({r[3]})</b><br>{r[2]} | {r[4]} | {r[5]} د.ل</div>", unsafe_allow_html=True)
             st_l = ["قيد الانتظار","تحت الصيانة","تمت صيانته","تم تسليمه"]
-            ns = st.selectbox("الحالة", st_l, index=st_l.index(r) if r in st_l else 0, key=f"s{r}")
-            if ns != r:
-                c = sqlite3.connect("saleem_local_cache.db"); c.execute("UPDATE repairs SET status=? WHERE id=?", (ns,r)); c.commit(); c.close()
-                if on: requests.patch(f"{URL}/repairs?id=eq.{r}", headers=H, json={"status":ns})
+            ns = st.selectbox("الحالة", st_l, index=st_l.index(r[6]) if r[6] in st_l else 0, key=f"s{r[0]}")
+            if ns != r[6]:
+                c = sqlite3.connect("saleem_local_cache.db"); c.execute("UPDATE repairs SET status=? WHERE id=?", (ns,r[0])); c.commit(); c.close()
+                if on: requests.patch(f"{URL}/repairs?id=eq.{r[0]}", headers=H, json={"status":ns})
                 st.rerun()
-            if st.button("حذف", key=f"dr{r}"):
-                c = sqlite3.connect("saleem_local_cache.db"); c.execute("DELETE FROM repairs WHERE id=?", (r,)); c.commit(); c.close()
-                if on: requests.delete(f"{URL}/repairs?id=eq.{r}", headers=H)
+            if st.button("حذف", key=f"dr{r[0]}"):
+                c = sqlite3.connect("saleem_local_cache.db"); c.execute("DELETE FROM repairs WHERE id=?", (r[0],)); c.commit(); c.close()
+                if on: requests.delete(f"{URL}/repairs?id=eq.{r[0]}", headers=H)
                 st.rerun()
